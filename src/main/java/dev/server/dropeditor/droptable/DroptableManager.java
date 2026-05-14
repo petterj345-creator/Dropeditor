@@ -688,10 +688,22 @@ public class DroptableManager {
                 plugin.getLogger().warning("Mob section " + mobName + " missing in file.");
                 return false;
             }
-            mobSec.set("DropTable", droptableName);
-            // Also remove any inline droptable references from the Drops list
-            // so there is only one source of truth.
+
+            // Remove the legacy "DropTable: name" field if present -- we use
+            // the inline form now so there's only one source of truth.
+            mobSec.set("DropTable", null);
+
+            // Remove any existing inline droptable refs from Drops to avoid
+            // duplicates if the user is switching from one droptable to another.
             stripInlineDroptableRefs(mobSec);
+
+            // Add the new droptable as an inline entry in the Drops list.
+            // This format is "<DroptableName>" on its own line, which MythicMobs
+            // recognizes as a reference to that droptable.
+            List<String> drops = mobSec.getStringList("Drops");
+            drops.add(droptableName);
+            mobSec.set("Drops", drops);
+
             cfg.save(mobFile);
             reloadMythicMobs();
             return true;
@@ -702,9 +714,8 @@ public class DroptableManager {
     }
 
     /**
-     * Removes the DropTable: field from a mob, reverting it to using only
-     * inline drops (or no drops if there are none). Also removes inline
-     * droptable references from the Drops list.
+     * Removes any droptable references from the mob (both the legacy
+     * "DropTable: name" field and inline list entries).
      */
     public boolean unlinkDroptableFromMob(String mobName) {
         File mobFile = findMobFile(mobName);
