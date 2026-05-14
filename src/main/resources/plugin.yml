@@ -1,0 +1,17 @@
+name: MythicDropEditor
+version: '${project.version}'
+main: dev.server.dropeditor.MythicDropEditor
+api-version: '1.21'
+authors: [YourName]
+description: Live in-game GUI editor for MythicMobs droptables with MMOItems support.
+depend: [MythicMobs]
+softdepend: [MMOItems]
+commands:
+  droptable:
+    description: Open the MythicMobs droptable editor
+    usage: /droptable
+    permission: mythicdropeditor.use
+permissions:
+  mythicdropeditor.use:
+    description: Allows opening and editing droptables
+    default: op
