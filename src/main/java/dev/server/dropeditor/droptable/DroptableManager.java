@@ -2,7 +2,7 @@ package dev.server.dropeditor.droptable;
 
 import dev.server.dropeditor.MythicDropEditor;
 import io.lumine.mythic.bukkit.MythicBukkit;
-import io.lumine.mythic.core.mobs.MythicMob;
+import io.lumine.mythic.api.mobs.MythicMob;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
