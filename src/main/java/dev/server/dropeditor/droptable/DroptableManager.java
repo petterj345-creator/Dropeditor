@@ -119,10 +119,25 @@ public class DroptableManager {
                 if (n.endsWith(".yml") || n.endsWith(".yaml")) {
                     YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
                     if (cfg.contains(topLevelKey)) return f;
+                    // Fall back to text scan -- Bukkit can't parse files with
+                    // unquoted curly braces in list entries (MMOItem syntax).
+                    if (fileContainsTopLevelKeyText(f, topLevelKey)) return f;
                 }
             }
         }
         return null;
+    }
+
+    private boolean fileContainsTopLevelKeyText(File f, String key) {
+        try {
+            for (String raw : java.nio.file.Files.readAllLines(f.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                String stripped = stripComment(raw.stripTrailing()).trim();
+                if (stripped.equals(key + ":") || stripped.startsWith(key + ":")) return true;
+            }
+        } catch (IOException ex) {
+            // ignore
+        }
+        return false;
     }
 
     // ---------- load ----------
@@ -157,8 +172,23 @@ public class DroptableManager {
     }
 
     private LoadResult parseDrops(File file, String key) {
+        // First try Bukkit's YAML parser (clean path).
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
         List<String> rawLines = cfg.getStringList(key + ".Drops");
+
+        // If Bukkit returns nothing for the Drops list, it's likely that
+        // snakeyaml choked on the MythicMobs/MMOItems syntax (curly braces,
+        // semicolons, equals signs). Fall back to a plain-text scan so we
+        // can still read these files.
+        if (rawLines == null || rawLines.isEmpty()) {
+            List<String> textLines = parseDropsAsText(file, key);
+            if (!textLines.isEmpty()) {
+                rawLines = textLines;
+                plugin.getLogger().info("Loaded " + textLines.size()
+                    + " drops from " + key + " via text fallback (YAML parse skipped them).");
+            }
+        }
+
         List<DropEntry> drops = new ArrayList<>();
         List<String> unparsed = new ArrayList<>();
 
@@ -168,7 +198,6 @@ public class DroptableManager {
                 drops.add(e);
             } else {
                 unparsed.add(line);
-                // Log unparsed lines so we can diagnose format issues
                 if (line != null && line.toUpperCase().contains("MMOITEM")) {
                     plugin.getLogger().info("[DEBUG] Failed to parse MMOItem line: \""
                         + line + "\" (preserving verbatim)");
@@ -180,6 +209,116 @@ public class DroptableManager {
         r.targetFile = file;
         r.targetKey  = key;
         return r;
+    }
+
+    /**
+     * Plain-text fallback for reading a Drops list when snakeyaml can't
+     * handle the content (e.g. unquoted curly braces in MMOItem lines).
+     *
+     * Walks the file looking for "  <key>:" at any indent, then reads its
+     * "Drops:" sub-section line by line, picking out "  - <stuff>" entries
+     * until indentation drops back to the section header level.
+     */
+    private List<String> parseDropsAsText(File file, String key) {
+        List<String> out = new ArrayList<>();
+        java.util.List<String> lines;
+        try {
+            lines = java.nio.file.Files.readAllLines(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            return out;
+        }
+
+        int sectionIndent = -1;
+        boolean inSection = false;
+        boolean inDrops = false;
+        int dropsIndent = -1;
+
+        for (String raw : lines) {
+            String stripped = raw.stripTrailing();
+            if (stripped.isEmpty()) continue;
+            // Remove comments
+            String noComment = stripComment(stripped);
+            if (noComment.trim().isEmpty()) continue;
+
+            int indent = leadingSpaces(noComment);
+
+            if (!inSection) {
+                // Look for "key:" at any indent level
+                String t = noComment.trim();
+                if (t.equals(key + ":") || t.startsWith(key + ":")) {
+                    inSection = true;
+                    sectionIndent = indent;
+                }
+                continue;
+            }
+
+            // We're inside the section. End it if indent drops back to section level
+            if (indent <= sectionIndent && !inDrops) {
+                // New sibling key at same level -- but only end if it's not us
+                String t = noComment.trim();
+                if (!t.equals(key + ":")) {
+                    inSection = false;
+                    inDrops = false;
+                    continue;
+                }
+            }
+
+            if (!inDrops) {
+                String t = noComment.trim();
+                if (t.equals("Drops:")) {
+                    inDrops = true;
+                    dropsIndent = indent;
+                }
+                continue;
+            }
+
+            // We're in Drops:. End if indent drops to <= dropsIndent
+            if (indent <= dropsIndent) {
+                inDrops = false;
+                // Reprocess this line as a potential section boundary
+                if (indent <= sectionIndent) inSection = false;
+                continue;
+            }
+
+            // List entry: "  - something"
+            String t = noComment.trim();
+            if (t.startsWith("- ")) {
+                String value = t.substring(2).trim();
+                // Strip surrounding YAML quotes
+                if (value.length() >= 2) {
+                    char a = value.charAt(0);
+                    char b = value.charAt(value.length() - 1);
+                    if ((a == '\'' && b == '\'') || (a == '"' && b == '"')) {
+                        value = value.substring(1, value.length() - 1);
+                    }
+                }
+                out.add(value);
+            } else if (t.equals("-")) {
+                // skip
+            }
+        }
+        return out;
+    }
+
+    private static int leadingSpaces(String s) {
+        int i = 0;
+        while (i < s.length() && s.charAt(i) == ' ') i++;
+        return i;
+    }
+
+    private static String stripComment(String line) {
+        // Strip "# ..." but only when not inside quotes. For MythicMobs lines
+        // we can be naive -- there's rarely a quoted '#' in a drop entry.
+        boolean inSingle = false, inDouble = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '\'' && !inDouble) inSingle = !inSingle;
+            else if (c == '"' && !inSingle) inDouble = !inDouble;
+            else if (c == '#' && !inSingle && !inDouble) {
+                return line.substring(0, i).stripTrailing();
+            }
+        }
+        return line;
     }
 
     private DropEntry parseLine(String line) {
@@ -260,17 +399,142 @@ public class DroptableManager {
     // ---------- save ----------
 
     public boolean saveDrops(File file, String key, List<DropEntry> drops, List<String> preserved) {
+        // Build the new list of lines for the Drops: section
+        List<String> newDropLines = new ArrayList<>();
+        for (DropEntry e : drops) newDropLines.add(e.toMythicLine());
+        if (preserved != null) newDropLines.addAll(preserved);
+
+        // Try Bukkit YAML save first. If the original file was clean enough
+        // for Bukkit to parse, this writes the cleanest output.
         try {
             YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
-            List<String> out = new ArrayList<>();
-            for (DropEntry e : drops) out.add(e.toMythicLine());
-            if (preserved != null) out.addAll(preserved);
-            cfg.set(key + ".Drops", out);
-            cfg.save(file);
-            reloadMythicMobs();
+            // Check Bukkit didn't lose the section -- if the key is missing or
+            // empty when we know there should be data, fall back to text edit.
+            boolean bukkitOk = cfg.contains(key);
+            if (bukkitOk) {
+                cfg.set(key + ".Drops", newDropLines);
+                cfg.save(file);
+                reloadMythicMobs();
+                return true;
+            }
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Bukkit save failed, falling back to text save: " + ex.getMessage());
+        }
+
+        // Fallback: surgical text edit of just the target Drops: block
+        boolean ok = saveDropsAsText(file, key, newDropLines);
+        if (ok) reloadMythicMobs();
+        return ok;
+    }
+
+    /**
+     * Surgical text-based save: finds "key:" then its "Drops:" sub-block and
+     * replaces only those lines with newDropLines. Everything else in the
+     * file (comments, other droptables, formatting) is preserved exactly.
+     *
+     * If the file doesn't yet contain key, the section is appended at the end.
+     */
+    private boolean saveDropsAsText(File file, String key, List<String> newDropLines) {
+        List<String> lines;
+        try {
+            lines = file.exists()
+                ? new ArrayList<>(java.nio.file.Files.readAllLines(file.toPath(), java.nio.charset.StandardCharsets.UTF_8))
+                : new ArrayList<>();
+        } catch (IOException ex) {
+            plugin.getLogger().severe("Read failed in text save: " + ex.getMessage());
+            return false;
+        }
+
+        // Find the section start
+        int sectionLine = -1;
+        int sectionIndent = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            String stripped = stripComment(lines.get(i).stripTrailing()).trim();
+            if (stripped.equals(key + ":") || stripped.startsWith(key + ":")) {
+                sectionLine = i;
+                sectionIndent = leadingSpaces(lines.get(i));
+                break;
+            }
+        }
+
+        // If the section doesn't exist, append it at the end
+        if (sectionLine < 0) {
+            if (!lines.isEmpty() && !lines.get(lines.size() - 1).isEmpty()) lines.add("");
+            lines.add(key + ":");
+            lines.add("  Drops:");
+            for (String dl : newDropLines) lines.add("  - " + dl);
+            return writeLines(file, lines);
+        }
+
+        // Find the Drops: line within the section, and the block range
+        int dropsLine = -1, dropsIndent = -1, dropsEnd = -1;
+        for (int i = sectionLine + 1; i < lines.size(); i++) {
+            String raw = lines.get(i);
+            String noc = stripComment(raw.stripTrailing());
+            if (noc.trim().isEmpty()) continue;
+            int ind = leadingSpaces(noc);
+            if (ind <= sectionIndent) break; // out of the section
+            if (dropsLine < 0) {
+                if (noc.trim().equals("Drops:")) {
+                    dropsLine = i;
+                    dropsIndent = ind;
+                }
+            } else {
+                if (ind <= dropsIndent) { dropsEnd = i; break; }
+            }
+        }
+
+        if (dropsLine < 0) {
+            // Section exists but has no Drops: -- insert one right after section header
+            List<String> inserted = new ArrayList<>();
+            String pad = " ".repeat(sectionIndent + 2);
+            inserted.add(pad + "Drops:");
+            for (String dl : newDropLines) inserted.add(pad + "- " + dl);
+            lines.addAll(sectionLine + 1, inserted);
+            return writeLines(file, lines);
+        }
+
+        if (dropsEnd < 0) dropsEnd = lines.size();
+
+        // Remove existing drop entries (lines after Drops: up to dropsEnd that
+        // are at indent > dropsIndent and look like list entries OR comments).
+        // We preserve comments here too -- if the user has notes in the file
+        // we don't want to wipe them.
+        List<String> kept = new ArrayList<>();
+        for (int i = dropsLine + 1; i < dropsEnd; i++) {
+            String raw = lines.get(i);
+            String noc = stripComment(raw.stripTrailing());
+            // Keep comment-only lines verbatim
+            if (noc.trim().isEmpty() && !raw.trim().isEmpty()) {
+                kept.add(raw);
+            }
+            // Drop everything else (the actual list entries)
+        }
+
+        // Build replacement block
+        String pad = " ".repeat(dropsIndent + 2);
+        List<String> replacement = new ArrayList<>();
+        for (String dl : newDropLines) replacement.add(pad + "- " + dl);
+
+        // Splice: keep lines before Drops:, keep Drops: header, insert new
+        // entries, then keep lines from dropsEnd onward
+        List<String> result = new ArrayList<>(lines.subList(0, dropsLine + 1));
+        result.addAll(replacement);
+        result.addAll(kept); // preserved comment lines
+        if (dropsEnd < lines.size()) result.addAll(lines.subList(dropsEnd, lines.size()));
+
+        return writeLines(file, result);
+    }
+
+    private boolean writeLines(File file, List<String> lines) {
+        try {
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.nio.file.Files.write(file.toPath(), lines,
+                java.nio.charset.StandardCharsets.UTF_8);
             return true;
         } catch (IOException ex) {
-            plugin.getLogger().severe("Failed to save droptable: " + ex.getMessage());
+            plugin.getLogger().severe("Text save failed: " + ex.getMessage());
             return false;
         }
     }
@@ -368,8 +632,31 @@ public class DroptableManager {
             }
             String n = f.getName().toLowerCase();
             if (!n.endsWith(".yml") && !n.endsWith(".yaml")) continue;
+
+            // Bukkit YAML first
             YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
-            for (String k : cfg.getKeys(false)) out.add(k);
+            java.util.Set<String> keys = cfg.getKeys(false);
+            if (!keys.isEmpty()) {
+                out.addAll(keys);
+                continue;
+            }
+
+            // Fallback: scan file as text for top-level keys (lines that start
+            // at column 0, are not comments, and end with ':').
+            try {
+                for (String raw : java.nio.file.Files.readAllLines(f.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                    String s = stripComment(raw.stripTrailing());
+                    if (s.isEmpty()) continue;
+                    if (leadingSpaces(s) != 0) continue;
+                    String t = s.trim();
+                    int colon = t.indexOf(':');
+                    if (colon <= 0) continue;
+                    String key = t.substring(0, colon).trim();
+                    if (!key.isEmpty()) out.add(key);
+                }
+            } catch (IOException ex) {
+                // ignore unreadable files
+            }
         }
     }
 
