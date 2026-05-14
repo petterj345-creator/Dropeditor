@@ -29,11 +29,10 @@ import java.util.regex.Pattern;
  */
 public class DroptableManager {
 
-    // Matches the overall structure: MMOITEM { ... } amount [chance]
-    // The inner key=value pairs are parsed separately so any number/order
-    // of parameters works (type, id, unidentified, level, tier, etc.).
+    // Matches the overall structure: MMOITEM(S) { ... } amount [chance]
+    // Accepts both "mmoitem" and "mmoitems" -- MythicMobs allows either.
     private static final Pattern MMOITEM_PATTERN = Pattern.compile(
-        "^MMOITEM\\s*\\{\\s*(.+?)\\s*\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
+        "^MMOITEMS?\\s*\\{\\s*(.+?)\\s*\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
         Pattern.CASE_INSENSITIVE
     );
 
