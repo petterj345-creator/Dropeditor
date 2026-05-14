@@ -29,8 +29,10 @@ import java.util.regex.Pattern;
  */
 public class DroptableManager {
 
+    // Accepts the standard MMOItem drop line with permissive whitespace.
+    // Example: MMOITEM{type=SWORD;id=LONG_SWORD} 1 1.0
     private static final Pattern MMOITEM_PATTERN = Pattern.compile(
-        "^MMOITEM\\{type=([^;]+);id=([^}]+)\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
+        "^MMOITEM\\s*\\{\\s*type\\s*=\\s*([^;\\s]+)\\s*;\\s*id\\s*=\\s*([^}\\s]+)\\s*\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
         Pattern.CASE_INSENSITIVE
     );
 
@@ -161,8 +163,16 @@ public class DroptableManager {
 
         for (String line : rawLines) {
             DropEntry e = parseLine(line);
-            if (e != null) drops.add(e);
-            else unparsed.add(line);
+            if (e != null) {
+                drops.add(e);
+            } else {
+                unparsed.add(line);
+                // Log unparsed lines so we can diagnose format issues
+                if (line != null && line.toUpperCase().contains("MMOITEM")) {
+                    plugin.getLogger().info("[DEBUG] Failed to parse MMOItem line: \""
+                        + line + "\" (preserving verbatim)");
+                }
+            }
         }
 
         LoadResult r = LoadResult.ok(drops, unparsed);
@@ -175,6 +185,16 @@ public class DroptableManager {
         if (line == null) return null;
         String trimmed = line.trim();
         if (trimmed.isEmpty()) return null;
+
+        // Bukkit's YamlConfiguration may write our line as a quoted string.
+        // Strip surrounding single or double quotes before parsing.
+        if (trimmed.length() >= 2) {
+            char first = trimmed.charAt(0);
+            char last  = trimmed.charAt(trimmed.length() - 1);
+            if ((first == '\'' && last == '\'') || (first == '"' && last == '"')) {
+                trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+            }
+        }
 
         // MMOItem: "MMOITEM{type=X;id=Y} AMOUNT CHANCE"
         Matcher mm = MMOITEM_PATTERN.matcher(trimmed);

@@ -267,20 +267,47 @@ public class GuiManager {
         String amount = e.getMinAmount() == e.getMaxAmount()
             ? String.valueOf(e.getMinAmount())
             : e.getMinAmount() + "-" + e.getMaxAmount();
+
+        List<String> lore = new ArrayList<>();
+        lore.add("\u00a77Chance: \u00a7f" + chance);
+        lore.add("\u00a77Amount: \u00a7f" + amount);
+        lore.add(e.getKind() == DropEntry.Kind.MMOITEM
+            ? "\u00a7dMMOItem: \u00a7f" + e.getMmoType() + " / " + e.getMmoId()
+            : "\u00a78Vanilla item");
+        lore.add("");
+        lore.add("\u00a7eLeft-click \u00a77: edit chance");
+        lore.add("\u00a7eRight-click \u00a77: edit amount");
+        lore.add("\u00a7eShift-click \u00a77: remove");
+
+        // For MMOItems, try to render the actual item so the player sees
+        // the correct model, display name, and lore. Fall back gracefully.
+        if (e.getKind() == DropEntry.Kind.MMOITEM) {
+            ItemStack icon = dev.server.dropeditor.util.MMOItemsHook.buildItem(
+                e.getMmoType(), e.getMmoId());
+            if (icon == null) icon = e.getCachedIcon();
+            if (icon != null) {
+                icon = icon.clone();
+                icon.setAmount(Math.min(64, Math.max(1, e.getMaxAmount())));
+                org.bukkit.inventory.meta.ItemMeta meta = icon.getItemMeta();
+                if (meta != null) {
+                    // Keep MMOItem's display name if present; only add our lore
+                    java.util.List<String> existingLore = meta.hasLore() ? meta.getLore() : new ArrayList<>();
+                    if (existingLore == null) existingLore = new ArrayList<>();
+                    existingLore.add("");
+                    existingLore.add("\u00a78\u2500\u2500 Drop settings \u2500\u2500");
+                    existingLore.addAll(lore);
+                    meta.setLore(existingLore);
+                    icon.setItemMeta(meta);
+                }
+                return icon;
+            }
+            // No icon available -- fall through to ItemBuilder paper fallback
+        }
+
         return new ItemBuilder(e.getMaterial())
             .amount(Math.min(64, e.getMaxAmount()))
             .name("\u00a7e" + e.displayName())
-            .lore(
-                "\u00a77Chance: \u00a7f" + chance,
-                "\u00a77Amount: \u00a7f" + amount,
-                e.getKind() == DropEntry.Kind.MMOITEM
-                    ? "\u00a7dMMOItem: \u00a7f" + e.getMmoType() + " / " + e.getMmoId()
-                    : "\u00a78Vanilla item",
-                "",
-                "\u00a7eLeft-click \u00a77: edit chance",
-                "\u00a7eRight-click \u00a77: edit amount",
-                "\u00a7eShift-click \u00a77: remove"
-            ).build();
+            .lore(lore).build();
     }
 
     // ===== session accessors =====

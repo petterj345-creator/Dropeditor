@@ -274,6 +274,7 @@ public class GuiListener implements Listener {
         String[] mm = MMOItemsHook.getTypeAndId(item);
         if (mm != null) {
             entry = new DropEntry(mm[0], mm[1], item.getType(), item.getAmount(), item.getAmount(), 1.0);
+            entry.setCachedIcon(item.clone()); // snapshot the real visual for the GUI
             player.sendMessage("\u00a7dDetected MMOItem: \u00a7f" + mm[0] + " / " + mm[1]);
         } else {
             entry = new DropEntry(item.getType(), item.getAmount(), item.getAmount(), 1.0);

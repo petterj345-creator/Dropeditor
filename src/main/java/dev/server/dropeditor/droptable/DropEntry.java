@@ -1,6 +1,7 @@
 package dev.server.dropeditor.droptable;
 
 import org.bukkit.Material;
+import org.bukkit.inventory.ItemStack;
 
 /**
  * One drop in a droptable. Either:
@@ -8,6 +9,10 @@ import org.bukkit.Material;
  *   MMOITEM  -> mmoType + mmoId define the drop, material is just the GUI icon
  *
  * Chance is stored 0.0 - 1.0 internally; the user enters/sees it as 1-100 percent.
+ *
+ * For MMOItems, cachedIcon may hold the actual ItemStack snapshot from when
+ * the item was dragged in -- used as a fallback icon if MMOItems' live API
+ * lookup fails when re-rendering the GUI after a reload.
  */
 public class DropEntry {
 
@@ -20,6 +25,7 @@ public class DropEntry {
     private int minAmount;
     private int maxAmount;
     private double chance;
+    private ItemStack cachedIcon; // optional snapshot for MMOItem display
 
     public DropEntry(Material material, int minAmount, int maxAmount, double chance) {
         this.kind = Kind.VANILLA;
@@ -46,6 +52,9 @@ public class DropEntry {
     public int      getMinAmount()  { return minAmount; }
     public int      getMaxAmount()  { return maxAmount; }
     public double   getChance()     { return chance; }
+    public ItemStack getCachedIcon() { return cachedIcon; }
+
+    public void setCachedIcon(ItemStack icon) { this.cachedIcon = icon; }
 
     public int getChancePercent() { return (int) Math.round(chance * 100.0); }
 
