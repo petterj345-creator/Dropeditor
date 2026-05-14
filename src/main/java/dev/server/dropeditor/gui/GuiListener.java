@@ -8,7 +8,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
@@ -28,13 +27,17 @@ public class GuiListener implements Listener {
     @EventHandler
     public void onClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        Inventory top = event.getView().getTopInventory();
         String title = event.getView().getTitle();
 
-        if (title.startsWith(GuiManager.LIST_TITLE_PREFIX)) {
+        if (title.equals(GuiManager.MENU_TITLE)) {
+            handleMenuClick(event, player);
+        } else if (title.startsWith(GuiManager.MOB_LIST_PREFIX)
+                || title.startsWith(GuiManager.DT_LIST_PREFIX)
+                || title.startsWith(GuiManager.DT_LINK_PREFIX)) {
             handleListClick(event, player);
-        } else if (title.startsWith(GuiManager.EDITOR_TITLE_PREFIX)) {
-            handleEditorClick(event, player, top);
+        } else if (title.startsWith(GuiManager.EDITOR_PREFIX)
+                || title.startsWith(GuiManager.DT_EDITOR_PREFIX)) {
+            handleEditorClick(event, player, event.getView().getTopInventory());
         }
     }
 
@@ -43,27 +46,25 @@ public class GuiListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         String title = event.getView().getTitle();
 
-        if (title.startsWith(GuiManager.LIST_TITLE_PREFIX)) {
-            // No dragging in the list view
+        // Block dragging in menus and lists
+        if (title.equals(GuiManager.MENU_TITLE)
+                || title.startsWith(GuiManager.MOB_LIST_PREFIX)
+                || title.startsWith(GuiManager.DT_LIST_PREFIX)
+                || title.startsWith(GuiManager.DT_LINK_PREFIX)) {
             event.setCancelled(true);
             return;
         }
-        if (!title.startsWith(GuiManager.EDITOR_TITLE_PREFIX)) return;
+        if (!title.startsWith(GuiManager.EDITOR_PREFIX)
+                && !title.startsWith(GuiManager.DT_EDITOR_PREFIX)) return;
 
-        // Allow drag only into the drop-slot area (0-44)
         Set<Integer> slots = event.getRawSlots();
         int topSize = event.getView().getTopInventory().getSize();
         for (int slot : slots) {
             if (slot < topSize && slot >= 45) {
-                // Trying to drop onto a control button -- block
                 event.setCancelled(true);
                 return;
             }
         }
-        // If they dropped a stack into a single editor slot, treat it as
-        // an add. We can't fully handle multi-slot splits cleanly here,
-        // so the simplest UX is: cancel native drag, take the cursor item,
-        // and add it as a drop.
         if (slots.size() == 1) {
             int slot = slots.iterator().next();
             if (slot < topSize && slot < 45) {
@@ -77,7 +78,21 @@ public class GuiListener implements Listener {
         }
     }
 
-    // ---------- list ----------
+    // ===== main menu =====
+
+    private void handleMenuClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+        ItemStack clicked = event.getCurrentItem();
+        if (clicked == null || clicked.getType() == Material.AIR) return;
+        switch (clicked.getType()) {
+            case SPAWNER -> plugin.getGuiManager().openMobList(player, 0, "");
+            case CHEST   -> plugin.getGuiManager().openDroptableList(player, 0, "");
+            case BARRIER -> player.closeInventory();
+            default -> { }
+        }
+    }
+
+    // ===== mob/droptable list =====
 
     private void handleListClick(InventoryClickEvent event, Player player) {
         event.setCancelled(true);
@@ -90,33 +105,65 @@ public class GuiListener implements Listener {
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
 
+        // Bottom row controls
         switch (slot) {
             case 45 -> {
-                // Search
                 plugin.getChatPromptManager().prompt(player,
-                    "Type a search term for mob names (or 'all' to clear).",
+                    "Type a search term (or 'all' to clear).",
                     reply -> {
                         String q = reply.equalsIgnoreCase("all") ? "" : reply;
-                        plugin.getGuiManager().openMobList(player, 0, q);
+                        reopenList(player, ses.kind, 0, q, ses.linkForMob);
                     });
+                return;
             }
-            case 48 -> plugin.getGuiManager().openMobList(player, ses.page - 1, ses.search);
-            case 50 -> plugin.getGuiManager().openMobList(player, ses.page + 1, ses.search);
-            case 53 -> player.closeInventory();
-            case 49 -> { /* info pane, no action */ }
-            default -> {
-                // Mob slot
+            case 48 -> { reopenList(player, ses.kind, ses.page - 1, ses.search, ses.linkForMob); return; }
+            case 50 -> { reopenList(player, ses.kind, ses.page + 1, ses.search, ses.linkForMob); return; }
+            case 53 -> { player.closeInventory(); return; }
+            case 49 -> { return; }
+        }
+
+        // Content slot click
+        ItemMeta meta = clicked.getItemMeta();
+        if (meta == null) return;
+        String name = stripColor(meta.getDisplayName());
+
+        switch (ses.kind) {
+            case MOB -> {
                 if (clicked.getType() == Material.SPAWNER) {
-                    ItemMeta meta = clicked.getItemMeta();
-                    if (meta == null) return;
-                    String name = stripColor(meta.getDisplayName());
-                    plugin.getGuiManager().openEditor(player, name);
+                    plugin.getGuiManager().openMobEditor(player, name);
+                }
+            }
+            case DROPTABLE -> {
+                if (clicked.getType() == Material.CHEST) {
+                    plugin.getGuiManager().openDroptableEditor(player, name);
+                }
+            }
+            case DROPTABLE_LINK -> {
+                if (clicked.getType() == Material.CHEST) {
+                    boolean ok = plugin.getDroptableManager()
+                        .linkDroptableToMob(ses.linkForMob, name);
+                    if (ok) {
+                        player.sendMessage("\u00a7aLinked droptable \u00a7f" + name
+                            + "\u00a7a to mob \u00a7e" + ses.linkForMob);
+                    } else {
+                        player.sendMessage("\u00a7cFailed to link droptable. Check console.");
+                    }
+                    // Return to the mob editor
+                    plugin.getGuiManager().openMobEditor(player, ses.linkForMob);
                 }
             }
         }
     }
 
-    // ---------- editor ----------
+    private void reopenList(Player player, GuiManager.ListKind kind, int page, String search, String linkForMob) {
+        switch (kind) {
+            case MOB             -> plugin.getGuiManager().openMobList(player, page, search);
+            case DROPTABLE       -> plugin.getGuiManager().openDroptableList(player, page, search);
+            case DROPTABLE_LINK  -> plugin.getGuiManager().openDroptableLinkPicker(player, linkForMob, page, search);
+        }
+    }
+
+    // ===== editor =====
 
     private void handleEditorClick(InventoryClickEvent event, Player player, Inventory top) {
         GuiManager.EditorSession ses = plugin.getGuiManager().getEditorSession(player);
@@ -125,10 +172,9 @@ public class GuiListener implements Listener {
         int raw = event.getRawSlot();
         boolean inTop = raw < top.getSize();
 
-        // Clicks in player inventory: allow normal behavior unless it's a shift-click into top
+        // Player inventory clicks
         if (!inTop) {
             if (event.getClick() == ClickType.SHIFT_LEFT || event.getClick() == ClickType.SHIFT_RIGHT) {
-                // Shift-click from player inv = add this item as a drop
                 event.setCancelled(true);
                 ItemStack moved = event.getCurrentItem();
                 if (moved != null && moved.getType() != Material.AIR) {
@@ -138,17 +184,40 @@ public class GuiListener implements Listener {
             return;
         }
 
-        // Top inventory click
-        // Control rows (45-53)
+        // Top inventory bottom row (controls)
         if (raw >= 45) {
             event.setCancelled(true);
             switch (raw) {
                 case 45 -> {
-                    // Back to mob list
-                    GuiManager.ListSession ls = plugin.getGuiManager().getListSession(player);
-                    int page = ls != null ? ls.page : 0;
-                    String search = ls != null ? ls.search : "";
-                    plugin.getGuiManager().openMobList(player, page, search);
+                    // Back
+                    if (ses.mode == GuiManager.EditorMode.MOB) {
+                        GuiManager.ListSession ls = plugin.getGuiManager().getListSession(player);
+                        int page = ls != null ? ls.page : 0;
+                        String search = ls != null ? ls.search : "";
+                        plugin.getGuiManager().openMobList(player, page, search);
+                    } else {
+                        plugin.getGuiManager().openDroptableList(player, 0, "");
+                    }
+                }
+                case 46 -> {
+                    // Link droptable (mob editor only)
+                    if (ses.mode == GuiManager.EditorMode.MOB) {
+                        plugin.getGuiManager()
+                            .openDroptableLinkPicker(player, ses.subjectName, 0, "");
+                    }
+                }
+                case 47 -> {
+                    // Unlink droptable (mob editor only)
+                    if (ses.mode == GuiManager.EditorMode.MOB) {
+                        boolean ok = plugin.getDroptableManager()
+                            .unlinkDroptableFromMob(ses.subjectName);
+                        if (ok) {
+                            player.sendMessage("\u00a7cUnlinked droptable from \u00a7e" + ses.subjectName);
+                        } else {
+                            player.sendMessage("\u00a7cFailed to unlink. Check console.");
+                        }
+                        plugin.getGuiManager().openMobEditor(player, ses.subjectName);
+                    }
                 }
                 case 53 -> {
                     // Save
@@ -156,43 +225,36 @@ public class GuiListener implements Listener {
                         .saveDrops(ses.targetFile, ses.targetKey, ses.drops, ses.preserved);
                     if (ok) {
                         player.sendMessage("\u00a7aSaved \u00a7f" + ses.drops.size()
-                            + " drop(s)\u00a7a for \u00a7e" + ses.mobName
+                            + " drop(s)\u00a7a for \u00a7e" + ses.subjectName
                             + "\u00a7a and reloaded MythicMobs.");
                     } else {
                         player.sendMessage("\u00a7cSave failed -- check console.");
                     }
                     player.closeInventory();
                 }
-                default -> { /* info pane */ }
+                default -> { }
             }
             return;
         }
 
-        // Drop slot (0-44)
+        // Drop slot
         if (raw < ses.drops.size()) {
-            // Click on existing drop
             event.setCancelled(true);
             DropEntry entry = ses.drops.get(raw);
 
             if (event.getClick().isShiftClick()) {
-                // Remove
                 ses.drops.remove(raw);
                 player.sendMessage("\u00a7cRemoved drop: \u00a7f" + entry.displayName());
                 plugin.getGuiManager().renderEditor(player, ses);
                 return;
             }
-
-            if (event.getClick() == ClickType.LEFT) {
-                promptChance(player, entry, ses);
-            } else if (event.getClick() == ClickType.RIGHT) {
-                promptAmount(player, entry, ses);
-            }
+            if (event.getClick() == ClickType.LEFT)  promptChance(player, entry, ses);
+            else if (event.getClick() == ClickType.RIGHT) promptAmount(player, entry, ses);
             return;
         }
 
-        // Click on empty drop slot
+        // Empty slot - allow placing
         if (event.getCursor() != null && event.getCursor().getType() != Material.AIR) {
-            // Player is trying to place an item -- intercept and add it as a drop
             event.setCancelled(true);
             ItemStack placed = event.getCursor().clone();
             handleItemAdded(player, placed);
@@ -202,12 +264,8 @@ public class GuiListener implements Listener {
         }
     }
 
-    // ---------- add new drop ----------
+    // ===== add new drop =====
 
-    /**
-     * Called when the player drops an item into the editor (drag, shift-click,
-     * or place). Detects MMOItem vs vanilla, then prompts for chance and amount.
-     */
     private void handleItemAdded(Player player, ItemStack item) {
         GuiManager.EditorSession ses = plugin.getGuiManager().getEditorSession(player);
         if (ses == null || item == null || item.getType() == Material.AIR) return;
@@ -222,12 +280,10 @@ public class GuiListener implements Listener {
             player.sendMessage("\u00a77Added vanilla item: \u00a7f" + item.getType().name());
         }
         ses.drops.add(entry);
-
-        // Prompt chance, then amount
         promptChance(player, entry, ses);
     }
 
-    // ---------- prompts ----------
+    // ===== prompts =====
 
     private void promptChance(Player player, DropEntry entry, GuiManager.EditorSession ses) {
         plugin.getChatPromptManager().prompt(player,
@@ -245,7 +301,6 @@ public class GuiListener implements Listener {
                 } catch (NumberFormatException ex) {
                     player.sendMessage("\u00a7cNot a valid number: \"" + reply + "\"");
                 }
-                // After chance, prompt for amount
                 promptAmount(player, entry, ses);
             });
     }
@@ -279,12 +334,9 @@ public class GuiListener implements Listener {
                 } catch (NumberFormatException ex) {
                     player.sendMessage("\u00a7cNot a valid number: \"" + reply + "\"");
                 }
-                // Reopen editor with updated entry
                 plugin.getGuiManager().renderEditor(player, ses);
             });
     }
-
-    // ---------- helpers ----------
 
     private static String stripColor(String s) {
         if (s == null) return "";

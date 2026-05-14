@@ -24,7 +24,7 @@ public class DroptableCommand implements CommandExecutor {
             player.sendMessage("\u00a7cYou don't have permission.");
             return true;
         }
-        plugin.getGuiManager().openMobList(player, 0, "");
+        plugin.getGuiManager().openMainMenu(player);
         return true;
     }
 }

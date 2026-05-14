@@ -245,6 +245,120 @@ public class DroptableManager {
         );
     }
 
+    // ---------- droptable browsing ----------
+
+    /**
+     * Returns every top-level key found in every YAML file under DropTables/.
+     * Each key is a droptable name that can be referenced from a mob's
+     * DropTable: field.
+     */
+    public List<String> getAllDroptableNames() {
+        List<String> names = new ArrayList<>();
+        File dir = findSubfolder("DropTables", "droptables", "Droptables");
+        if (dir == null) return names;
+        collectTopLevelKeys(dir, names);
+        names.sort(String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
+    public List<String> searchDroptables(String query) {
+        if (query == null || query.isEmpty()) return getAllDroptableNames();
+        String lower = query.toLowerCase();
+        List<String> out = new ArrayList<>();
+        for (String name : getAllDroptableNames()) {
+            if (name.toLowerCase().contains(lower)) out.add(name);
+        }
+        return out;
+    }
+
+    private void collectTopLevelKeys(File dir, List<String> out) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                collectTopLevelKeys(f, out);
+                continue;
+            }
+            String n = f.getName().toLowerCase();
+            if (!n.endsWith(".yml") && !n.endsWith(".yaml")) continue;
+            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
+            for (String k : cfg.getKeys(false)) out.add(k);
+        }
+    }
+
+    /**
+     * Loads a droptable directly by name (not via a mob).
+     */
+    public LoadResult loadDroptableByName(String droptableName) {
+        File file = findDroptableFile(droptableName);
+        if (file == null) return LoadResult.error("Droptable not found.");
+        return parseDrops(file, droptableName);
+    }
+
+    /**
+     * Writes a "DropTable: <name>" field into the mob's YAML, replacing any
+     * existing reference. Also reloads MythicMobs so the change goes live.
+     *
+     * Returns true on success.
+     */
+    public boolean linkDroptableToMob(String mobName, String droptableName) {
+        File mobFile = findMobFile(mobName);
+        if (mobFile == null) {
+            plugin.getLogger().warning("Cannot link droptable: mob file for "
+                + mobName + " not found.");
+            return false;
+        }
+        try {
+            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(mobFile);
+            ConfigurationSection mobSec = cfg.getConfigurationSection(mobName);
+            if (mobSec == null) {
+                plugin.getLogger().warning("Mob section " + mobName + " missing in file.");
+                return false;
+            }
+            mobSec.set("DropTable", droptableName);
+            cfg.save(mobFile);
+            reloadMythicMobs();
+            return true;
+        } catch (IOException ex) {
+            plugin.getLogger().severe("Failed to link droptable: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Removes the DropTable: field from a mob, reverting it to using only
+     * inline drops (or no drops if there are none).
+     */
+    public boolean unlinkDroptableFromMob(String mobName) {
+        File mobFile = findMobFile(mobName);
+        if (mobFile == null) return false;
+        try {
+            YamlConfiguration cfg = YamlConfiguration.loadConfiguration(mobFile);
+            ConfigurationSection mobSec = cfg.getConfigurationSection(mobName);
+            if (mobSec == null) return false;
+            mobSec.set("DropTable", null);
+            cfg.save(mobFile);
+            reloadMythicMobs();
+            return true;
+        } catch (IOException ex) {
+            plugin.getLogger().severe("Failed to unlink droptable: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Returns the current DropTable: name linked to this mob, or null.
+     */
+    public String getLinkedDroptable(String mobName) {
+        File mobFile = findMobFile(mobName);
+        if (mobFile == null) return null;
+        YamlConfiguration cfg = YamlConfiguration.loadConfiguration(mobFile);
+        ConfigurationSection mobSec = cfg.getConfigurationSection(mobName);
+        if (mobSec == null) return null;
+        String ref = mobSec.getString("DropTable");
+        return (ref == null || ref.isEmpty()) ? null : ref;
+    }
+
     // ---------- result ----------
 
     public static class LoadResult {
