@@ -316,6 +316,9 @@ public class DroptableManager {
                 return false;
             }
             mobSec.set("DropTable", droptableName);
+            // Also remove any inline droptable references from the Drops list
+            // so there is only one source of truth.
+            stripInlineDroptableRefs(mobSec);
             cfg.save(mobFile);
             reloadMythicMobs();
             return true;
@@ -327,7 +330,8 @@ public class DroptableManager {
 
     /**
      * Removes the DropTable: field from a mob, reverting it to using only
-     * inline drops (or no drops if there are none).
+     * inline drops (or no drops if there are none). Also removes inline
+     * droptable references from the Drops list.
      */
     public boolean unlinkDroptableFromMob(String mobName) {
         File mobFile = findMobFile(mobName);
@@ -337,6 +341,7 @@ public class DroptableManager {
             ConfigurationSection mobSec = cfg.getConfigurationSection(mobName);
             if (mobSec == null) return false;
             mobSec.set("DropTable", null);
+            stripInlineDroptableRefs(mobSec);
             cfg.save(mobFile);
             reloadMythicMobs();
             return true;
@@ -347,7 +352,43 @@ public class DroptableManager {
     }
 
     /**
-     * Returns the current DropTable: name linked to this mob, or null.
+     * Removes any single-word lines from the mob's Drops list that match
+     * the name of a known droptable. Leaves item entries alone.
+     */
+    private void stripInlineDroptableRefs(ConfigurationSection mobSec) {
+        List<String> drops = mobSec.getStringList("Drops");
+        if (drops.isEmpty()) return;
+        List<String> droptableNames = getAllDroptableNames();
+        if (droptableNames.isEmpty()) return;
+        List<String> filtered = new ArrayList<>();
+        for (String line : drops) {
+            if (line == null) { filtered.add(line); continue; }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.contains(" ")) {
+                filtered.add(line);
+                continue;
+            }
+            boolean isDroptableRef = false;
+            for (String dt : droptableNames) {
+                if (dt.equalsIgnoreCase(trimmed)) { isDroptableRef = true; break; }
+            }
+            if (!isDroptableRef) filtered.add(line);
+        }
+        mobSec.set("Drops", filtered);
+    }
+
+    /**
+     * Returns the droptable currently linked to this mob, or null.
+     *
+     * MythicMobs supports TWO ways to reference a droptable from a mob:
+     *   1. A top-level field:  DropTable: OW_T1_MMOItems
+     *   2. As a single-word entry inside the Drops list:
+     *        Drops:
+     *        - OW_T1_MMOItems     <-- this is a droptable reference
+     *        - ROTTEN_FLESH 1-2
+     *
+     * This method checks both. If multiple are present, the DropTable: field
+     * takes precedence (it's the more explicit form).
      */
     public String getLinkedDroptable(String mobName) {
         File mobFile = findMobFile(mobName);
@@ -355,8 +396,25 @@ public class DroptableManager {
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(mobFile);
         ConfigurationSection mobSec = cfg.getConfigurationSection(mobName);
         if (mobSec == null) return null;
+
+        // Form 1: explicit DropTable: field
         String ref = mobSec.getString("DropTable");
-        return (ref == null || ref.isEmpty()) ? null : ref;
+        if (ref != null && !ref.isEmpty()) return ref;
+
+        // Form 2: single-word droptable name inside the Drops list
+        List<String> droptableNames = getAllDroptableNames();
+        if (droptableNames.isEmpty()) return null;
+        for (String line : mobSec.getStringList("Drops")) {
+            if (line == null) continue;
+            String trimmed = line.trim();
+            // Skip lines that have a space (those are item drops, not refs)
+            if (trimmed.isEmpty() || trimmed.contains(" ")) continue;
+            // It's a single-word entry -- is it a known droptable?
+            for (String dt : droptableNames) {
+                if (dt.equalsIgnoreCase(trimmed)) return dt;
+            }
+        }
+        return null;
     }
 
     // ---------- result ----------
