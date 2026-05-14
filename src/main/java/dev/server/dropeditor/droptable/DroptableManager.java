@@ -282,6 +282,56 @@ public class DroptableManager {
         );
     }
 
+    // ---------- droptable creation ----------
+
+    /**
+     * Validates a candidate droptable name. MythicMobs identifiers should
+     * be alphanumeric + underscores, no spaces or special chars.
+     */
+    public boolean isValidName(String name) {
+        return name != null && name.matches("[A-Za-z0-9_]+");
+    }
+
+    /**
+     * Creates a new empty droptable in DropTables/CustomDropTables.yml.
+     * If a droptable with that name already exists, returns false without
+     * touching anything.
+     *
+     * The new droptable starts with an empty Drops: list, ready to be edited
+     * via openDroptableEditor.
+     */
+    public boolean createDroptable(String name) {
+        if (!isValidName(name)) return false;
+        // Don't allow overwrite -- check across all files
+        if (findDroptableFile(name) != null) return false;
+
+        File dir = findSubfolder("DropTables", "droptables", "Droptables");
+        if (dir == null) {
+            // No DropTables folder yet -- create one alongside the Mobs folder
+            dir = new File(mythicDataFolder(), "DropTables");
+            if (!dir.exists() && !dir.mkdirs()) {
+                plugin.getLogger().severe("Couldn't create DropTables folder.");
+                return false;
+            }
+        }
+
+        // Use a shared file so we don't pollute the folder with one file per
+        // table. Users who prefer one-file-per-table can move them later.
+        File file = new File(dir, "CustomDropTables.yml");
+        try {
+            YamlConfiguration cfg = file.exists()
+                ? YamlConfiguration.loadConfiguration(file)
+                : new YamlConfiguration();
+            cfg.set(name + ".Drops", new ArrayList<String>());
+            cfg.save(file);
+            reloadMythicMobs();
+            return true;
+        } catch (IOException ex) {
+            plugin.getLogger().severe("Failed to create droptable: " + ex.getMessage());
+            return false;
+        }
+    }
+
     // ---------- droptable browsing ----------
 
     /**

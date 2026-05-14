@@ -45,6 +45,7 @@ public class GuiManager {
 
     private static final int SLOT_SEARCH    = 45;
     private static final int SLOT_BACK_MENU = 46;
+    private static final int SLOT_CREATE    = 47;
     private static final int SLOT_PREV      = 48;
     private static final int SLOT_INFO      = 49;
     private static final int SLOT_NEXT      = 50;
@@ -152,6 +153,16 @@ public class GuiManager {
         }
 
         addListNav(inv, page, totalPages, tables.size(), search);
+
+        // "Create new droptable" only makes sense in browse mode -- in
+        // link-picker mode you can't link to something that doesn't exist
+        if (linkForMob == null) {
+            inv.setItem(SLOT_CREATE, new ItemBuilder(Material.WRITABLE_BOOK)
+                .name("\u00a7aCreate new droptable")
+                .lore("\u00a77Click to create a fresh, empty droptable.",
+                      "\u00a77You'll be asked to type a name.").build());
+        }
+
         lists.put(player.getUniqueId(),
             linkForMob == null
                 ? ListSession.dtList(page, search)

@@ -127,6 +127,29 @@ public class GuiListener implements Listener {
                 }
                 return;
             }
+            case 47 -> {
+                // Create new droptable (only in droptable browse mode)
+                if (ses.kind != GuiManager.ListKind.DROPTABLE) return;
+                plugin.getChatPromptManager().prompt(player,
+                    "Type a name for the new droptable (letters, numbers, underscores only).",
+                    reply -> {
+                        String name = reply.trim();
+                        if (!plugin.getDroptableManager().isValidName(name)) {
+                            player.sendMessage("\u00a7cInvalid name. Use only letters, numbers, and underscores.");
+                            plugin.getGuiManager().openDroptableList(player, 0, "");
+                            return;
+                        }
+                        boolean ok = plugin.getDroptableManager().createDroptable(name);
+                        if (ok) {
+                            player.sendMessage("\u00a7aCreated droptable \u00a7f" + name);
+                            plugin.getGuiManager().openDroptableEditor(player, name);
+                        } else {
+                            player.sendMessage("\u00a7cCouldn't create -- a droptable with that name already exists, or write failed.");
+                            plugin.getGuiManager().openDroptableList(player, 0, "");
+                        }
+                    });
+                return;
+            }
             case 48 -> { reopenList(player, ses.kind, ses.page - 1, ses.search, ses.linkForMob); return; }
             case 50 -> { reopenList(player, ses.kind, ses.page + 1, ses.search, ses.linkForMob); return; }
             case 53 -> { player.closeInventory(); return; }
