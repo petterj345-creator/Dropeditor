@@ -43,11 +43,12 @@ public class GuiManager {
     private static final int EDITOR_SIZE   = 54;
     private static final int EDITOR_SLOTS  = 45;
 
-    private static final int SLOT_SEARCH   = 45;
-    private static final int SLOT_PREV     = 48;
-    private static final int SLOT_INFO     = 49;
-    private static final int SLOT_NEXT     = 50;
-    private static final int SLOT_CLOSE    = 53;
+    private static final int SLOT_SEARCH    = 45;
+    private static final int SLOT_BACK_MENU = 46;
+    private static final int SLOT_PREV      = 48;
+    private static final int SLOT_INFO      = 49;
+    private static final int SLOT_NEXT      = 50;
+    private static final int SLOT_CLOSE     = 53;
 
     private static final int SLOT_BACK     = 45;
     private static final int SLOT_LINK     = 46;
@@ -164,6 +165,9 @@ public class GuiManager {
             .lore("\u00a77Click to search by name.",
                   search.isEmpty() ? "\u00a78(no filter)" : "\u00a77Current: \u00a7f" + search)
             .build());
+        inv.setItem(SLOT_BACK_MENU, new ItemBuilder(Material.ARROW)
+            .name("\u00a7eBack to menu")
+            .lore("\u00a77Return to the main menu.").build());
         if (page > 0) {
             inv.setItem(SLOT_PREV, new ItemBuilder(Material.ARROW)
                 .name("\u00a7ePrevious page").build());

@@ -116,6 +116,17 @@ public class GuiListener implements Listener {
                     });
                 return;
             }
+            case 46 -> {
+                // Back to main menu. If we're in DROPTABLE_LINK mode, this
+                // returns the player to the mob editor instead -- that's the
+                // sensible "back" target during a link flow.
+                if (ses.kind == GuiManager.ListKind.DROPTABLE_LINK && ses.linkForMob != null) {
+                    plugin.getGuiManager().openMobEditor(player, ses.linkForMob);
+                } else {
+                    plugin.getGuiManager().openMainMenu(player);
+                }
+                return;
+            }
             case 48 -> { reopenList(player, ses.kind, ses.page - 1, ses.search, ses.linkForMob); return; }
             case 50 -> { reopenList(player, ses.kind, ses.page + 1, ses.search, ses.linkForMob); return; }
             case 53 -> { player.closeInventory(); return; }
