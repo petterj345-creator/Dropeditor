@@ -29,10 +29,11 @@ import java.util.regex.Pattern;
  */
 public class DroptableManager {
 
-    // Accepts the standard MMOItem drop line with permissive whitespace.
-    // Example: MMOITEM{type=SWORD;id=LONG_SWORD} 1 1.0
+    // Matches the overall structure: MMOITEM { ... } amount [chance]
+    // The inner key=value pairs are parsed separately so any number/order
+    // of parameters works (type, id, unidentified, level, tier, etc.).
     private static final Pattern MMOITEM_PATTERN = Pattern.compile(
-        "^MMOITEM\\s*\\{\\s*type\\s*=\\s*([^;\\s]+)\\s*;\\s*id\\s*=\\s*([^}\\s]+)\\s*\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
+        "^MMOITEM\\s*\\{\\s*(.+?)\\s*\\}\\s+(\\S+)(?:\\s+(\\S+))?$",
         Pattern.CASE_INSENSITIVE
     );
 
@@ -196,14 +197,30 @@ public class DroptableManager {
             }
         }
 
-        // MMOItem: "MMOITEM{type=X;id=Y} AMOUNT CHANCE"
+        // MMOItem: "MMOITEM{key1=val1;key2=val2;...} AMOUNT CHANCE"
+        // Any number/order of parameters is accepted. Only type and id are
+        // required; other params (like unidentified=true) are silently dropped
+        // because they have no effect in current MMOItems anyway.
         Matcher mm = MMOITEM_PATTERN.matcher(trimmed);
         if (mm.matches()) {
-            String type = mm.group(1).trim();
-            String id   = mm.group(2).trim();
-            int[] amt = parseAmount(mm.group(3));
+            String params = mm.group(1);
+            int[] amt = parseAmount(mm.group(2));
             if (amt == null) return null;
-            double chance = parseChance(mm.group(4));
+            double chance = parseChance(mm.group(3));
+
+            String type = null, id = null;
+            for (String pair : params.split(";")) {
+                String p = pair.trim();
+                if (p.isEmpty()) continue;
+                int eq = p.indexOf('=');
+                if (eq <= 0) continue;
+                String k = p.substring(0, eq).trim();
+                String v = p.substring(eq + 1).trim();
+                if (k.equalsIgnoreCase("type"))    type = v;
+                else if (k.equalsIgnoreCase("id")) id = v;
+                // anything else is ignored
+            }
+            if (type == null || id == null) return null;
             return new DropEntry(type, id, Material.PAPER, amt[0], amt[1], chance);
         }
 
