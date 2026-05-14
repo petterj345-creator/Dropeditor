@@ -2,7 +2,7 @@ package dev.server.dropeditor.droptable;
 
 import dev.server.dropeditor.MythicDropEditor;
 import io.lumine.mythic.bukkit.MythicBukkit;
-import io.lumine.mythic.core.mobs.MythicMob;
+import io.lumine.mythic.api.mobs.MythicMob;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -67,12 +67,40 @@ public class DroptableManager {
         return plugin.getServer().getPluginManager().getPlugin("MythicMobs").getDataFolder();
     }
 
+    /**
+     * Case-insensitive folder resolver. On Linux filesystems "Mobs" and "mobs"
+     * are different folders -- MythicMobs accepts either, so we have to too.
+     * Returns the first existing folder matching any of the given names.
+     */
+    private File findSubfolder(String... candidates) {
+        File parent = mythicDataFolder();
+        // First try exact matches (fast path)
+        for (String c : candidates) {
+            File f = new File(parent, c);
+            if (f.exists() && f.isDirectory()) return f;
+        }
+        // Fall back to case-insensitive scan of parent dir
+        File[] children = parent.listFiles();
+        if (children == null) return null;
+        for (File child : children) {
+            if (!child.isDirectory()) continue;
+            for (String c : candidates) {
+                if (child.getName().equalsIgnoreCase(c)) return child;
+            }
+        }
+        return null;
+    }
+
     public File findMobFile(String mobName) {
-        return searchYamlForKey(new File(mythicDataFolder(), "Mobs"), mobName);
+        File dir = findSubfolder("Mobs", "mobs");
+        if (dir == null) return null;
+        return searchYamlForKey(dir, mobName);
     }
 
     public File findDroptableFile(String droptableName) {
-        return searchYamlForKey(new File(mythicDataFolder(), "DropTables"), droptableName);
+        File dir = findSubfolder("DropTables", "droptables", "Droptables");
+        if (dir == null) return null;
+        return searchYamlForKey(dir, droptableName);
     }
 
     private File searchYamlForKey(File dir, String topLevelKey) {
